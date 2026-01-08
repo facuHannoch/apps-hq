@@ -64,6 +64,13 @@ def read_text_file(path: Path) -> str:
         fail(f"Input file not found: {path}")
     return path.read_text(encoding="utf-8", errors="replace")
 
+DEFAULT_PROMPT="""
+Create a high-quality square logo icon for this application.
+Style: clean, modern, simple, readable at small sizes.
+Avoid text in the logo.
+Prefer a flat/icon style with strong silhouette.
+Return a single image.
+"""
 
 def generate_logo_png(
     api_key: str,
@@ -153,6 +160,11 @@ def main() -> None:
         default="ops/.cache/last_response.json",
         help="Write last API response JSON here.",
     )
+    p.add_argument(
+        "--custom-prompt",
+        default=DEFAULT_PROMPT,
+        help="Pass a custom prompt to define how the ai logo will be generated"
+    )
     args = p.parse_args()
 
     doc_path = Path(args.doc)
@@ -177,11 +189,8 @@ def main() -> None:
     doc = read_text_file(doc_path)
 
     prompt = f"""
-Create a high-quality square logo icon for this application.
-Style: clean, modern, simple, readable at small sizes.
-Avoid text in the logo.
-Prefer a flat/icon style with strong silhouette.
-Return a single image.
+
+{args.custom_prompt}
 
 PROJECT DOCS:
 ---
