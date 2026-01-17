@@ -7,9 +7,27 @@ There will be a submodule, which will contain documents, guides and pipelines to
 - `AGENTS.md`: A document containing instructions for agents to follow. This will be the system prompt for each new agent.
 
 Each app will contain:
-- `DESIGN.md`: This will explain the application, it's objective, architecture, etc.
-
-
+- `DESIGN.md`: This will explain the application, it's objective, architecture, etc. Contains
+  - user flows (behavioral)
+  - architecture & tech stack
+  - routing / paths
+  - data / persistence model
+  - invariants
+  - test expectations
+  - out-of-scope constraints
+  This file answers _How does this system behave and why?_
+- `UI_DESIGN.md`: aesthetic & interaction constraints. It is declarative, not descriptive. Contains:
+  - color scheme (tokens, not prose)
+  - typography rules
+  - spacing / density philosophy
+  - component style constraints
+  - interaction patterns (animations, feedback)
+  - responsive intent (not breakpoints, but intent)
+  - examples of what not to do
+  - This file answers:
+  - “How should this feel and look, and what must stay consistent?”
+  Agents read this before touching UI files.
+  
 ## Project Structure
 
 Each app will have a single repository, where 
@@ -93,6 +111,7 @@ const config: Config = {
   coverageProvider: 'v8',
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  testPathIgnorePatterns: ['/node_modules/', '/e2e/'],
 }
  
 export default createJestConfig(config)
@@ -260,7 +279,7 @@ pages_build_output_dir = ".vercel/output/static"
 
 ```json
     "pages:build": "wsl npx @cloudflare/next-on-pages",
-    "pages:deploy": "npm run pages:build && npx wrangler pages deploy .vercel/output/static --project-name=asnakegame",
+    "pages:deploy": "npm run pages:build && npx wrangler pages deploy .vercel/output/static --project-name=PROJECT_NAME",
     "pages:dev": "wsl npx @cloudflare/next-on-pages --watch"
 ```
 
