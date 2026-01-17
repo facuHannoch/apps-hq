@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-# Doesn't work on Windows (use WSL)
+
 
 from __future__ import annotations
 
@@ -72,6 +72,11 @@ Prefer a flat/icon style with strong silhouette.
 Return a single image.
 """
 
+DEFAULT_ICON_PROMPT="""
+Use the provided image to generate a icon for the website (will be converted to favicon format later)
+Make it simpler, remove texts, but keep the essence of the logo.
+"""
+
 def generate_logo_png(
     api_key: str,
     model: str,
@@ -113,6 +118,70 @@ def generate_logo_png(
     print(f"Wrote logo: {out_path}")
 
 
+def generate_icon_from_logo(
+    api_key: str,
+    model: str,
+    prompt: str,
+    logo_path: Path,
+    out_path: Path,
+    overwrite: bool,
+    debug_json_path: Path | None,
+) -> None:
+    """Generate a simplified icon from an existing logo image."""
+    if out_path.exists() and not overwrite:
+        print(f"Icon already exists, skipping generation: {out_path}")
+        return
+
+    if not logo_path.exists():
+        fail(f"Logo file not found: {logo_path}")
+
+    # Read and encode the logo image
+    logo_bytes = logo_path.read_bytes()
+    logo_b64 = base64.b64encode(logo_bytes).decode("utf-8")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"x-goog-api-key": api_key}
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inlineData": {
+                            "mimeType": "image/png",
+                            "data": logo_b64,
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    if resp.status_code != 200:
+        fail(f"Icon API request failed: HTTP {resp.status_code} — {resp.text[:300]}")
+
+    data = resp.json()
+
+    if debug_json_path:
+        debug_json_path.parent.mkdir(parents=True, exist_ok=True)
+        icon_debug_path = debug_json_path.parent / "last_icon_response.json"
+        icon_debug_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    # Find the first inlineData image part
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        image_data_b64 = next(
+            p["inlineData"]["data"] for p in parts if "inlineData" in p
+        )
+    except Exception:
+        fail("Could not find inline image data in API response (unexpected format).")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(base64.b64decode(image_data_b64))
+    print(f"Wrote icon: {out_path}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         description="Generate logo + icons + OG image into the app's public directory."
@@ -146,6 +215,11 @@ def main() -> None:
         help="Regenerate logo even if it exists.",
     )
     p.add_argument(
+        "--icon-out",
+        default="ops/.cache/icon.png",
+        help="Where to store the generated icon based on the base logo.",
+    )
+    p.add_argument(
         "--overwrite-assets",
         action="store_true",
         help="Overwrite published assets in public dir.",
@@ -165,11 +239,17 @@ def main() -> None:
         default=DEFAULT_PROMPT,
         help="Pass a custom prompt to define how the ai logo will be generated"
     )
+    p.add_argument(
+        "--custom-icon-prompt",
+        default=DEFAULT_ICON_PROMPT,
+        help="Pass a custom prompt to define how the icon will be generated"
+    )
     args = p.parse_args()
 
     doc_path = Path(args.doc)
     public_dir = Path(args.public_dir)
     logo_path = Path(args.logo_out)
+    icon_path = Path(args.icon_out)
     debug_json_path = Path(args.debug_json) if args.debug_json else None
     file_path = Path(__file__)
 
@@ -198,9 +278,33 @@ PROJECT DOCS:
 ---
 """.strip()
 
+
+# solid, flat, unlit, green (#00b140) background
+
+# Minimal flat icon, single solid color foreground, no shadows, no gradients, no textures, no background elements. Centered symbol only. Solid background color #00b140. Vector-like style, thick strokes, high contrast.
+
+# background must be exactly #ff00ff.
+
+
+# Don't use colors that confuse with black.
+# solid, flat, unlit, pure black (#000000) background. This background should apply to all parts except the icon itself. If the logo is a circular design, do not make a circle with only the inner part with this background: make all that is external to the icon have the same background.
+
+
+    icon_prompt = f"""
+
+{args.custom_icon_prompt}
+
+solid, flat, unlit background. This background should apply to all parts except the icon itself. If the logo is a circular design, do not make a circle with only the inner part with this background: make all that is external to the icon have the same background.
+Use pure black (#000000) background.
+No anti-aliasing against the background. No soft edges. No drop shadow. Hard edges.
+
+"""
+
+
     if args.dry_run:
         print("DRY RUN")
         print(f"Would generate logo to: {logo_path}")
+        print(f"Would generate icon out of logo ({logo_path}) to: {icon_path}")
     else:
         generate_logo_png(
             api_key=api_key,
@@ -208,6 +312,16 @@ PROJECT DOCS:
             prompt=prompt,
             out_path=logo_path,
             overwrite=args.overwrite_logo,
+            debug_json_path=debug_json_path,
+        )
+        # Generate simplified icon from the base logo
+        generate_icon_from_logo(
+            api_key=api_key,
+            model=args.model,
+            prompt=icon_prompt,
+            logo_path=logo_path,
+            out_path=icon_path,
+            overwrite=True,
             debug_json_path=debug_json_path,
         )
 
@@ -262,16 +376,49 @@ PROJECT DOCS:
 
     # Favicon multi-size ICO
     if should_write(out_favicon):
-        # For IM7, `-define icon:auto-resize=...` works; keep it.
+        # Create a temp transparent icon without modifying the original
+        temp_icon = icon_path.parent / f"temp_{icon_path.name}"
+
+        # Make the green background transparent
+        run_magick([str(icon_path), "-fuzz", "2%", "-transparent", "#000000", str(temp_icon)])
+
+        # 2) Create multi-size ICO, KEEP alpha
         run_magick(
             [
-                str(logo_path),
-                "-define",
-                "icon:auto-resize=256,128,64,48,32,16",
+                str(temp_icon),
+                "-define", "icon:auto-resize=256,128,64,48,32,16",
                 str(out_favicon),
             ]
         )
+        
+        # Create preview icon to validate the design
+        run_magick([f"{str(icon_path)}[0]", "-resize", "16x16", "check-16.png"])
+
+        if temp_icon.exists():
+            temp_icon.unlink()
         print(f"Wrote: {out_favicon}")
+
+
+        # run_magick([str(icon_path), "-transparent", "#00b140", str(temp_icon)])
+        # # Flatten onto white background to remove transparency, then convert to .ico
+        # run_magick(
+        #     [
+        #         str(temp_icon),
+        #         "-background",
+        #         "white",
+        #         "-alpha",
+        #         "remove",
+        #         "-alpha",
+        #         "off",
+        #         "-define",
+        #         "icon:auto-resize=256,128,64,48,32,16",
+        #         str(out_favicon),
+        #     ]
+        # )
+        # # Clean up temp file
+        # if temp_icon.exists():
+        #     temp_icon.unlink()
+        # print(f"Wrote: {out_favicon}")
 
     # OG image (centered logo on white background)
     if should_write(out_og):

@@ -7,7 +7,7 @@ There will be a submodule, which will contain documents, guides and pipelines to
 - `AGENTS.md`: A document containing instructions for agents to follow. This will be the system prompt for each new agent.
 
 Each app will contain:
-- `DESIGN.md`: A document that will contain 
+- `DESIGN.md`: This will explain the application, it's objective, architecture, etc.
 
 
 ## Project Structure
@@ -27,6 +27,13 @@ app/
 
 
 
+
+## Auth sanity check
+
+ssh -T git@github.com
+
+
+
 ## Set up project
 
 Read `DESIGN.md` and understand what this app needs to have set up. Do not just do everything that is said here (for example, don't set up cloudflare if the website is not going to be deployed on Cloudflare).
@@ -40,8 +47,9 @@ Search on `DESIGN.md` for Project Name (human readable), project-name (for build
 #### 1. Create Nextjs app
 
 ```bash
-npx create-next-app@latest .
+npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm
 ```
+Would you like to use React Compiler? » No / Yes -> No
 
 #### 2. Setting up linter
 
@@ -258,3 +266,6 @@ pages_build_output_dir = ".vercel/output/static"
 
 
 #### 5. Stage changes
+
+1. Stage changes
+2. git commit -m "Initialized Nextjs webapp with <things installed>"
