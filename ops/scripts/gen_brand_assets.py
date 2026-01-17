@@ -192,6 +192,11 @@ def main() -> None:
         help="Path to project doc file to feed the model (e.g. DESIGN.md).",
     )
     p.add_argument(
+        "--ui-doc",
+        default=None,
+        help="Path to UI doc file to feed the model (e.g. UI_DESIGN.md).",
+    )
+    p.add_argument(
         "--public-dir",
         default=DEFAULT_PUBLIC_DIR,
         help="App public directory (default: web/public).",
@@ -247,6 +252,9 @@ def main() -> None:
     args = p.parse_args()
 
     doc_path = Path(args.doc)
+    ui_docs_path = None
+    if args.ui_doc:
+        ui_docs_path = Path(args.ui_doc)
     public_dir = Path(args.public_dir)
     logo_path = Path(args.logo_out)
     icon_path = Path(args.icon_out)
@@ -260,13 +268,16 @@ def main() -> None:
         )
 
     api_key = os.getenv(args.api_key_env)
-    if not api_key:
-        load_dotenv(f"{file_path}/.env")
-        api_key = os.getenv(os.getenv("IMAGE_AI_API_KEY"))
     if not api_key and not args.dry_run:
-        fail(f"Missing API key env var: {args.api_key_env}")
+        load_dotenv(f"{file_path}/.env")
+        try:
+            api_key = os.getenv(os.getenv("IMAGE_AI_API_KEY"))
+        except:
+            fail(f"Missing API key env var: {args.api_key_env}")
 
     doc = read_text_file(doc_path)
+    if ui_docs_path:
+        ui_docs = read_text_file(ui_docs_path)
 
     prompt = f"""
 
@@ -276,7 +287,18 @@ PROJECT DOCS:
 ---
 {doc}
 ---
-""".strip()
+"""
+    
+    if ui_docs_path:
+        prompt += f"""
+
+UI_DESIGN DOCS:
+---
+{ui_docs}
+---
+"""
+    
+    prompt = prompt.strip()
 
 
 # solid, flat, unlit, green (#00b140) background
@@ -379,8 +401,35 @@ No anti-aliasing against the background. No soft edges. No drop shadow. Hard edg
         # Create a temp transparent icon without modifying the original
         temp_icon = icon_path.parent / f"temp_{icon_path.name}"
 
+        # 1) Make transparent, TRIM the edges, and then make it SQUARE again
+        # run_magick([
+        #     str(icon_path),
+        #     "-fuzz", "2%",
+        #     "-transparent", "#000000", # or whatever color your background is
+        #     "-trim",                   # <--- Removes all empty space around the icon
+        #     "+repage",                 # <--- Resets the virtual canvas coordinates
+        #     "-gravity", "center",      # <--- Centers the icon for the next step
+        #     "-background", "none",     # <--- Ensures the new canvas area is transparent
+        #     # The line below makes the canvas a square based on the largest side
+        #     "-extent", "%[fx:max(w,h)]x%[fx:max(w,h)]", 
+        #     str(temp_icon)
+        # ])
+        run_magick([
+            str(icon_path),
+            "-fuzz", "2%",
+            "-transparent", "#000000",
+            "-trim",                   # Cut off the empty space
+            "+repage",                 # Reset canvas coordinates
+            "-resize", "256x256",      # Grow the trimmed icon to fit a 256px box
+            "-gravity", "center",      # Center it
+            "-background", "none",     # Ensure padding is transparent
+            "-extent", "256x256",      # Force the final canvas to be a perfect square
+            str(temp_icon)
+        ])
+
+
         # Make the green background transparent
-        run_magick([str(icon_path), "-fuzz", "2%", "-transparent", "#000000", str(temp_icon)])
+        # run_magick([str(icon_path), "-fuzz", "2%", "-transparent", "#000000", str(temp_icon)])
 
         # 2) Create multi-size ICO, KEEP alpha
         run_magick(
@@ -397,28 +446,6 @@ No anti-aliasing against the background. No soft edges. No drop shadow. Hard edg
         if temp_icon.exists():
             temp_icon.unlink()
         print(f"Wrote: {out_favicon}")
-
-
-        # run_magick([str(icon_path), "-transparent", "#00b140", str(temp_icon)])
-        # # Flatten onto white background to remove transparency, then convert to .ico
-        # run_magick(
-        #     [
-        #         str(temp_icon),
-        #         "-background",
-        #         "white",
-        #         "-alpha",
-        #         "remove",
-        #         "-alpha",
-        #         "off",
-        #         "-define",
-        #         "icon:auto-resize=256,128,64,48,32,16",
-        #         str(out_favicon),
-        #     ]
-        # )
-        # # Clean up temp file
-        # if temp_icon.exists():
-        #     temp_icon.unlink()
-        # print(f"Wrote: {out_favicon}")
 
     # OG image (centered logo on white background)
     if should_write(out_og):
