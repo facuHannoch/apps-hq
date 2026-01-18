@@ -20,19 +20,7 @@ def get_letter(i: int) -> str:
 """Generates worktrees (and branches) from a list of tasks/topics and creates a tmux session with a new window for each worktree, having each window two vertical panes, initializing lazygit on the left pane (right panel is to initialize cli code).
 If the worktrees and/or branches already exist, it skips that steps (does not fail)
 """
-def build_worktree_and_deploy_agents():
-    p = argparse.ArgumentParser()
-    p.add_argument("--repo", required=True, help="Repo name, used for worktree folder naming")
-    p.add_argument("--base", default="..", help="Base directory where main repo lives (default: ..)")
-    p.add_argument("--wt-root", default="../_wt", help="Worktrees root directory (default: ../_wt)")
-    p.add_argument("--tasks", required=True, help='Comma-separated, e.g. "seoandcompliancepages,app,landingpages,server"')
-    p.add_argument("--branch-prefix", default="aiagent", help='Branch prefix, e.g. "aiagent"')
-    p.add_argument("--session", default=None, help="tmux session name (default: repo name)")
-    p.add_argument("--start-codex", action="store_true", help="Auto-run codex in right pane")
-    p.add_argument("--codex-read-prompt", default="Read PROCESS.md and all the pages that it references",
-                   help="Initial prompt to send to codex (only if --start-codex)")
-    p.add_argument("--email-domain", default="local", help="Used for per-agent email, e.g. aiagent/a/app@local")
-    args = p.parse_args()
+def build_worktree_and_deploy_agents(args):
 
     base = Path(args.base).resolve()
     wt_root = Path(args.wt_root).resolve()
@@ -64,8 +52,14 @@ def build_worktree_and_deploy_agents():
         if wt_dir.exists():
             print(f"Worktree {wt_dir} already exists, skipping...")
             continue
-        # Worktree add (attached to HEAD)
-        sh(["git", "worktree", "add", "-b", branch, str(wt_dir), "HEAD"], cwd=base / repo)
+        
+        # Worktree add
+        if branch_check.returncode == 0:
+            # Branch exists, attach worktree to it
+            sh(["git", "worktree", "add", str(wt_dir), branch], cwd=base / repo)
+        else:
+            # Branch doesn't exist, create it
+            sh(["git", "worktree", "add", "-b", branch, str(wt_dir), "HEAD"], cwd=base / repo)
 
         # Init submodules inside worktree
         sh(["git", "submodule", "update", "--init", "--recursive"], cwd=wt_dir)
@@ -109,5 +103,104 @@ def build_worktree_and_deploy_agents():
     # Attach
     tmux(["attach-session", "-t", session])
 
+"""
+Kills the tmux session
+Removes each worktree
+Deletes the branches (unless --keep-branches is specified) !!! TODO: This ok??
+Handles errors gracefully if resources don't exist
+"""
+def destroy_tmux_sessions_and_worktrees(args):
+    """Clean up tmux session, worktrees, and optionally branches."""
+    base = Path(args.base).resolve()
+    wt_root = Path(args.wt_root).resolve()
+    repo = args.repo
+    session = args.session or repo
+
+    tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
+    if not tasks:
+        raise SystemExit("No tasks parsed from --tasks")
+
+    # 1) Kill tmux session if it exists
+    try:
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", session],
+            capture_output=True
+        )
+        if result.returncode == 0:
+            print(f"Killing tmux session: {session}")
+            tmux(["kill-session", "-t", session])
+        else:
+            print(f"Tmux session {session} not found")
+    except Exception as e:
+        print(f"Error checking/killing tmux session: {e}")
+
+    # 2) Remove worktrees
+    for i, task in enumerate(tasks):
+        a = get_letter(i)
+        branch = f"{args.branch_prefix}/{a}/{task}"
+        wt_dir = wt_root / f"{repo}__{args.branch_prefix}-{a}-{task}"
+
+        if wt_dir.exists():
+            print(f"Removing worktree: {wt_dir}")
+            try:
+                sh(["git", "worktree", "remove", str(wt_dir)], cwd=base / repo)
+            except subprocess.CalledProcessError as e:
+                print(f"Error removing worktree {wt_dir}: {e}")
+                print(f"You may need to manually remove: {wt_dir}")
+        else:
+            print(f"Worktree {wt_dir} not found")
+
+        # 3) Delete branches if not keeping them
+        if not args.keep_branches:
+            # Check if branch exists
+            branch_check = subprocess.run(
+                ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+                cwd=base / repo,
+                capture_output=True
+            )
+            if branch_check.returncode == 0:
+                print(f"Deleting branch: {branch}")
+                try:
+                    sh(["git", "branch", "-D", branch], cwd=base / repo)
+                except subprocess.CalledProcessError as e:
+                    print(f"Error deleting branch {branch}: {e}")
+            else:
+                print(f"Branch {branch} not found")
+
+    print("\nCleanup complete!")
+
 if __name__ == "__main__":
-    build_worktree_and_deploy_agents()
+
+    p = argparse.ArgumentParser()
+    subparsers = p.add_subparsers(dest="command", required=True)
+
+    # Deploy subcommand
+    deploy_p = subparsers.add_parser('deploy', help='Deploy agent worktrees and tmux')
+    deploy_p.add_argument("--repo", required=True, help="Repo name, used for worktree folder naming")
+    deploy_p.add_argument("--base", default="..", help="Base directory where main repo lives (default: ..)")
+    deploy_p.add_argument("--wt-root", default="../_wt", help="Worktrees root directory (default: ../_wt)")
+    deploy_p.add_argument("--tasks", required=True, help='Comma-separated, e.g. "seoandcompliancepages,app,landingpages,server"')
+    deploy_p.add_argument("--branch-prefix", default="aiagent", help='Branch prefix, e.g. "aiagent"')
+    deploy_p.add_argument("--session", default=None, help="tmux session name (default: repo name)")
+    deploy_p.add_argument("--start-codex", action="store_true", help="Auto-run codex in right pane")
+    deploy_p.add_argument("--codex-read-prompt", default="Read PROCESS.md and all the pages that it references",
+                   help="Initial prompt to send to codex (only if --start-codex)")
+    deploy_p.add_argument("--email-domain", default="local", help="Used for per-agent email, e.g. aiagent/a/app@local")
+
+    # Destroy subcommand
+    destroy_p = subparsers.add_parser('destroy', help='Clean up worktrees and tmux')
+    destroy_p.add_argument("--repo", required=True, help="Repo name, used for worktree folder naming")
+    destroy_p.add_argument("--base", default="..", help="Base directory where main repo lives (default: ..)")
+    destroy_p.add_argument("--wt-root", default="../_wt", help="Worktrees root directory (default: ../_wt)")
+    destroy_p.add_argument("--tasks", required=True, help='Comma-separated, e.g. "seoandcompliancepages,app,landingpages,server"')
+    destroy_p.add_argument("--branch-prefix", default="aiagent", help='Branch prefix, e.g. "aiagent"')
+    destroy_p.add_argument("--session", default=None, help="tmux session name (default: repo name)")
+    destroy_p.add_argument("--keep-branches", default=True, action="store_true", help="Keep git branches after removing worktrees")
+    
+
+    args = p.parse_args()
+
+    if args.command == 'deploy':
+        build_worktree_and_deploy_agents(args)
+    elif args.command == 'destroy':
+        destroy_tmux_sessions_and_worktrees(args)
