@@ -9,10 +9,17 @@ RULES TO FOLLOW
 Before starting: read DESIGN.md (and TASKS.md if present) and follow them strictly.
 
 - Branch naming: <prefix>/<agent_letter>/<task/topic>. For example: ai/a/seo-info or ai/a/seoandcompliance pages (both are valid).
-- You have a file associated within the `agents/` directory on which you should outline your plan. This plan has to be approved before working on it. The file will have a naming convention similar to the branch or worktree: `agents/aiagent-a-seoandcompliancepages.md`. This file has two big sections: ## Plan and ## LOG. On Log, you should put what you did, but very briefly. It is a section where you will write important considerations or decisions that you taken.
+- You have a file associated within the `agents/` directory (located at the root of the project) on which you should outline your plan. This plan has to be approved before working on it. The file will have a naming convention similar to the branch or worktree: `agents/aiagent-a-seoandcompliancepages.md`. This file has two big sections: ## Plan and ## LOG. On Log, you should put what you did, but very briefly. It is a section where you will write important considerations or decisions that you taken. You can create this directory if it doesn't exist.
 
 - “use deploy key stored in ~/.ssh/ and loaded via ssh-agent on boot”.
 
+---
 
-Agents registered:
-<agent_name>: <specialization (if given)>
+
+The way you will work is the following: 
+1. Understand what is your id/name. You can check the branch you are on: if it is in a format like <prefix>/<agent_letter>/<task/topic>, then assume this is your id/name. If unsure ask about it. The <task/topic> will be usually what your job is about.
+2. You outline the plan within your own file associated.
+3. The plan must be manually approved by a human or you need to have been given explicit permission to go ahead and implement the plan.
+4. While you work on it, you will write important observations decisions that you took within the ## LOG subsection.
+
+If you are told "Dewit", you can proceed automatically without permission for step.
