@@ -5,6 +5,7 @@ There will be a submodule, which will contain documents, guides and pipelines to
 - `guides/`: A directory containing guides or documents explaining certain topics
 - `PROCESS.md`: This file. It will act both as a document for explaining the processes, and a guide for how to do certain things, like initializing common libraries like `Jest`.
 - `AGENTS.md`: A document containing instructions for agents to follow. This will be the system prompt for each new agent.
+- `agents/`: A directory where each agent will outline its plan and log what id did / decisions / blockers.
 
 Each app will contain:
 - `DESIGN.md`: This will explain the application, it's objective, architecture, etc. Contains
@@ -56,9 +57,10 @@ ssh -T git@github.com
 
 Read `DESIGN.md` and understand what this app needs to have set up. Do not just do everything that is said here (for example, don't set up cloudflare if the website is not going to be deployed on Cloudflare).
 
+
 ### Web
 
-Search on `DESIGN.md` for Project Name (human readable), project-name (for building or identifiers) and URL domain
+Search on `DESIGN.md` for Project Name (human readable), project-name (for building or identifiers) and URL domain. 
 
 > This must be done not on root, but where thenextjs application is located, for example `/web`
 
