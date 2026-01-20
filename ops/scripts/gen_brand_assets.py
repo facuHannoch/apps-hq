@@ -22,6 +22,7 @@ load_dotenv()
 
 DEFAULT_MODEL = "gemini-2.5-flash-image"
 DEFAULT_PUBLIC_DIR = "web/public"
+DEFAULT_MOBILE_PUBLIC_DIR = "app/assets"
 
 # Output contract relative to public dir
 OUT_ICON_512 = Path("icons/icon-512.png")
@@ -29,6 +30,11 @@ OUT_ICON_192 = Path("icons/icon-192.png")
 OUT_APPLE = Path("icons/apple-touch-icon.png")
 OUT_FAVICON = Path("favicon.ico")
 OUT_OG = Path("og/og.png")
+
+OUT_MOBILE_ICON_1024 = Path("icons/icon.png")
+OUT_MOBILE_ICON_1024_FOREGROUND = Path("icons/icon_foreground.png")
+OUT_MOBILE_ICON_1024_BACKGROUND = Path("icons/icon_background.png")
+
 
 
 def fail(msg: str, code: int = 1) -> None:
@@ -39,7 +45,7 @@ def fail(msg: str, code: int = 1) -> None:
 def which(cmd: str) -> str | None:
     return shutil.which(cmd)
 
-
+# https://imagemagick.org/archive/binaries/magick
 def run_magick(args: list[str]) -> None:
     """
     Runs ImageMagick in a portable way.
@@ -182,7 +188,7 @@ def generate_icon_from_logo(
     print(f"Wrote icon: {out_path}")
 
 
-def main() -> None:
+def web_logo() -> None:
     p = argparse.ArgumentParser(
         description="Generate logo + icons + OG image into the app's public directory."
     )
@@ -249,7 +255,7 @@ def main() -> None:
         default=DEFAULT_ICON_PROMPT,
         help="Pass a custom prompt to define how the icon will be generated"
     )
-    args = p.parse_args()
+    args = p.parse_args(sys.argv[2:])  # Parse from second arg (after subcommand)
 
     doc_path = Path(args.doc)
     ui_docs_path = None
@@ -469,6 +475,167 @@ No anti-aliasing against the background. No soft edges. No drop shadow. Hard edg
 
     print("Done.")
 
+
+def mobile_icons() -> None:
+    p = argparse.ArgumentParser(
+        description="Generate mobile app icons (Android/iOS) from a logo."
+    )
+    p.add_argument(
+        "doc",
+        type=str,
+        help="Path to project doc file to feed the model (e.g. DESIGN.md).",
+    )
+    p.add_argument(
+        "--public-dir",
+        default=DEFAULT_MOBILE_PUBLIC_DIR,
+        help=f"App assets directory (default: {DEFAULT_MOBILE_PUBLIC_DIR}).",
+    )
+    p.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Image model (default: {DEFAULT_MODEL}).",
+    )
+    p.add_argument(
+        "--api-key-env", default="IMAGE_AI_API_KEY", help="Env var containing API key."
+    )
+    p.add_argument(
+        "--logo-out",
+        default="ops/.cache/mobile_logo.png",
+        help="Where to store the generated base logo (png).",
+    )
+    p.add_argument(
+        "--overwrite-logo",
+        action="store_true",
+        help="Regenerate logo even if it exists.",
+    )
+    p.add_argument(
+        "--overwrite-assets",
+        action="store_true",
+        help="Overwrite published assets in app directory.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not call API or write outputs; just print actions.",
+    )
+    p.add_argument(
+        "--debug-json",
+        default="ops/.cache/last_mobile_response.json",
+        help="Write last API response JSON here.",
+    )
+    p.add_argument(
+        "--custom-prompt",
+        default=DEFAULT_PROMPT,
+        help="Pass a custom prompt to define how the ai logo will be generated"
+    )
+    args = p.parse_args(sys.argv[2:])  # Parse from second arg (after subcommand)
+
+    doc_path = Path(args.doc)
+    public_dir = Path(args.public_dir)
+    logo_path = Path(args.logo_out)
+    debug_json_path = Path(args.debug_json) if args.debug_json else None
+    file_path = Path(__file__)
+
+    # Validate directories
+    if not public_dir.exists():
+        public_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Created directory: {public_dir}")
+
+    api_key = os.getenv(args.api_key_env)
+    if not api_key:
+        load_dotenv(f"{file_path}/.env")
+        api_key = os.getenv(os.getenv("IMAGE_AI_API_KEY"))
+    if not api_key and not args.dry_run:
+        fail(f"Missing API key env var: {args.api_key_env}")
+
+    doc = read_text_file(doc_path)
+
+    prompt = f"""
+
+{args.custom_prompt}
+
+PROJECT DOCS:
+---
+{doc}
+---
+""".strip()
+
+    if args.dry_run:
+        print("DRY RUN")
+        print(f"Would generate logo to: {logo_path}")
+    else:
+        generate_logo_png(
+            api_key=api_key,
+            model=args.model,
+            prompt=prompt,
+            out_path=logo_path,
+            overwrite=args.overwrite_logo,
+            debug_json_path=debug_json_path,
+        )
+
+    # Published outputs for mobile
+    out_icon_1024 = public_dir / OUT_MOBILE_ICON_1024
+    out_icon_foreground = public_dir / OUT_MOBILE_ICON_1024_FOREGROUND
+    out_icon_background = public_dir / OUT_MOBILE_ICON_1024_BACKGROUND
+
+    if args.dry_run:
+        print(f"Would write: {out_icon_1024}, {out_icon_foreground}, {out_icon_background}")
+        return
+
+    # Overwrite policy
+    def should_write(path: Path) -> bool:
+        return args.overwrite_assets or (not path.exists())
+
+    # Ensure dirs
+    (public_dir / "icons").mkdir(parents=True, exist_ok=True)
+
+    # Main icon (1024x1024 for iOS)
+    if should_write(out_icon_1024):
+        run_magick([str(logo_path), "-resize", "1024x1024", str(out_icon_1024)])
+        print(f"Wrote: {out_icon_1024}")
+
+    # Foreground icon (adaptive icon for Android)
+    if should_write(out_icon_foreground):
+        run_magick([str(logo_path), "-resize", "1024x1024", str(out_icon_foreground)])
+        print(f"Wrote: {out_icon_foreground}")
+
+    # Background (solid color or pattern for Android adaptive icon)
+    if should_write(out_icon_background):
+        run_magick(
+            [
+                "-size",
+                "1024x1024",
+                "xc:white",
+                str(out_icon_background),
+            ]
+        )
+        print(f"Wrote: {out_icon_background}")
+
+    print("Done.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Brand asset generation tool with multiple modes",
+        usage="gen_brand_assets.py <command> [<args>]"
+    )
+    parser.add_argument(
+        "command",
+        help="Subcommand to run: web-logo | mobile-icons"
+    )
+    
+    # Parse only the command argument
+    args = parser.parse_args(sys.argv[1:2])
+    
+    if args.command == "web-logo":
+        web_logo()
+    elif args.command == "mobile-icons":
+        mobile_icons()
+    else:
+        print(f"Unknown command: {args.command}")
+        print("Available commands: web-logo, mobile-icons")
+        parser.print_help()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
